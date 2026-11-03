@@ -524,9 +524,10 @@ textarea { resize: vertical; white-space: pre-wrap; }
 
   /* ---------- Beispiel abspielen ---------- */
   function playExample() {
-    var code = talkLang(), L = D[code], run = { stop: false };
+    var code = talkLang(), L = D[code], run = { stop: false, fast: false };
     playing = run; S.entries = []; render();
     var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function pause(ms, quick) { return wait(reduced || run.fast ? quick : ms); }
     function step(i) {
       if (run.stop || i >= TURNS_DE.length) return Promise.resolve();
       var teacher = i % 2 === 0;
@@ -537,19 +538,26 @@ textarea { resize: vertical; white-space: pre-wrap; }
       listening = line.side; render();
       var words = line.text.split(' '), p = Promise.resolve();
       words.forEach(function (w, n) {
-        p = p.then(function () { if (run.stop) return null; setInterim(words.slice(0, n + 1).join(' ')); return wait(reduced ? 0 : 110); });
+        p = p.then(function () { if (run.stop) return null; setInterim(words.slice(0, n + 1).join(' ')); return pause(110, 0); });
       });
       return p.then(function () {
         if (run.stop) return null;
         listening = null; busy = true; render();
-        return wait(reduced ? 50 : 500);
+        return pause(500, 50);
       }).then(function () {
         if (run.stop) return null;
         busy = false; S.entries.push(line); render();
-        return line.trans ? Promise.race([speak(line.trans, line.transLang), wait(9000)]) : null;
-      }).then(function () { return wait(reduced ? 50 : 500); }).then(function () { return step(i + 1); });
+        return line.trans && !run.fast ? Promise.race([speak(line.trans, line.transLang), wait(9000), run.skipped]) : null;
+      }).then(function () { return pause(500, 50); }).then(function () { return step(i + 1); });
     }
+    run.skipped = new Promise(function (resolve) { run.skip = resolve; });
     step(0).then(function () { if (run.stop) return; playing = null; listening = null; busy = false; S.fromExample = true; render(); });
+  }
+  function fastExample() {
+    if (!playing) return;
+    playing.fast = true; playing.skip();
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    render();
   }
   function stopExample() {
     if (playing) playing.stop = true;
@@ -1190,8 +1198,10 @@ textarea { resize: vertical; white-space: pre-wrap; }
       out.push(lanes, h('div', { class: 'interim', id: 'interim', 'aria-live': 'polite' }));
       out.push(h('div', { class: 'speak' }, [micButton('a'), micButton('b')]));
       var acts = [];
-      if (playing) acts.push(btn('Beispiel stoppen', '', stopExample, { id: 'stop-example' }));
-      else {
+      if (playing) {
+        if (!playing.fast) acts.push(btn('Schneller', 'primary', fastExample, { id: 'fast-example' }));
+        acts.push(btn('Beispiel stoppen', '', stopExample, { id: 'stop-example' }));
+      } else {
         if (D[code] && !S.entries.length) acts.push(btn('Beispiel abspielen', 'primary', playExample, { id: 'play-example' }));
         if (S.entries.length) acts.push(btn('Gespräch beenden', 'primary', endTalk, { id: 'end-talk', disabled: busy || !!listening }));
       }
